@@ -4,9 +4,17 @@ Unified API client for autonovel.
 Supports both Anthropic and DeepSeek API providers.
 """
 import os
+import sys
 import httpx
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Windows编码修复
+if sys.platform == "win32":
+    import io
+    # 设置标准输出为UTF-8编码
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 BASE_DIR = Path(__file__).parent
 load_dotenv(BASE_DIR / ".env")
