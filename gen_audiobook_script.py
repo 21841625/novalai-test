@@ -17,14 +17,14 @@ import sys
 import json
 import re
 from pathlib import Path
-from dotenv import load_dotenv
+
+from api_client import call_llm, get_writer_model, get_api_key, get_api_provider
 
 BASE_DIR = Path(__file__).parent
-load_dotenv(BASE_DIR / ".env", override=True)
 
-WRITER_MODEL = os.environ.get("AUTONOVEL_WRITER_MODEL", "claude-sonnet-4-6")
-API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-API_BASE = os.environ.get("AUTONOVEL_API_BASE_URL", "https://api.anthropic.com")
+WRITER_MODEL = get_writer_model()
+API_KEY = get_api_key()
+API_PROVIDER = get_api_provider()
 
 CHAPTERS_DIR = BASE_DIR / "chapters"
 AUDIO_DIR = BASE_DIR / "audiobook"
@@ -66,25 +66,7 @@ Rules:
 
 
 def call_claude(prompt, max_tokens=8000):
-    import httpx
-    resp = httpx.post(
-        f"{API_BASE}/v1/messages",
-        headers={
-            "x-api-key": API_KEY,
-            "anthropic-version": "2023-06-01",
-            "anthropic-beta": "context-1m-2025-08-07",
-            "content-type": "application/json",
-        },
-        json={
-            "model": WRITER_MODEL,
-            "max_tokens": max_tokens,
-            "temperature": 0.1,
-            "messages": [{"role": "user", "content": prompt}],
-        },
-        timeout=300,
-    )
-    resp.raise_for_status()
-    return resp.json()["content"][0]["text"]
+    return call_llm(prompt, WRITER_MODEL, max_tokens, 0.1)
 
 
 def parse_chapter(ch_num):
@@ -140,16 +122,12 @@ Output the JSON array only. No other text."""
         segments = json.loads(result)
     except json.JSONDecodeError:
         # Try to fix common JSON issues from LLM output
-        # 1. Remove trailing commas before ] or }
         cleaned = re.sub(r',\s*([}\]])', r'\1', result)
-        # 2. Fix unescaped newlines in strings
         cleaned = cleaned.replace('\n', '\\n')
-        # 3. Re-add structural newlines (between array elements)
         cleaned = cleaned.replace('\\n{', '\n{').replace('\\n]', '\n]')
         try:
             segments = json.loads(cleaned)
         except json.JSONDecodeError:
-            # Last resort: extract individual objects
             print(f" (fixing JSON...)", end="", flush=True)
             segments = []
             for m in re.finditer(r'\{\s*"speaker"\s*:\s*"([^"]+)"\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}', result):
@@ -174,9 +152,12 @@ Output the JSON array only. No other text."""
 
 
 def main():
+    if not API_KEY:
+        print(f"ERROR: Set {'DEEPSEEK_API_KEY' if API_PROVIDER == 'deepseek' else 'ANTHROPIC_API_KEY'} in .env first", file=sys.stderr)
+        sys.exit(1)
+
     SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Parse args for chapter range
     chapters = sorted(CHAPTERS_DIR.glob("ch_*.md"))
     total = len(chapters)
 
@@ -193,12 +174,10 @@ def main():
     for ch_num in range(start, end + 1):
         script = parse_chapter(ch_num)
         if script:
-            # Save individual chapter script
             out_path = SCRIPTS_DIR / f"ch{ch_num:02d}_script.json"
             out_path.write_text(json.dumps(script, indent=2))
             all_scripts.append(script)
 
-    # Summary
     print(f"\n{'='*50}")
     print(f"AUDIOBOOK SCRIPT SUMMARY")
     print(f"  Chapters: {len(all_scripts)}")

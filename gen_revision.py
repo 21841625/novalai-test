@@ -6,40 +6,31 @@ Usage: python gen_revision.py <chapter_num> <brief_file>
 import os
 import sys
 from pathlib import Path
-from dotenv import load_dotenv
+
+from api_client import call_llm, get_writer_model, get_api_key, get_api_provider
 
 BASE_DIR = Path(__file__).parent
-load_dotenv(BASE_DIR / ".env")
 
-WRITER_MODEL = os.environ.get("AUTONOVEL_WRITER_MODEL", "claude-sonnet-4-6")
-API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-API_BASE = os.environ.get("AUTONOVEL_API_BASE_URL", "https://api.anthropic.com")
+WRITER_MODEL = get_writer_model()
+API_KEY = get_api_key()
+API_PROVIDER = get_api_provider()
+
 
 def call_writer(prompt, max_tokens=16000):
-    import httpx
-    headers = {
-        "x-api-key": API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "context-1m-2025-08-07",
-        "content-type": "application/json",
-    }
-    payload = {
-        "model": WRITER_MODEL,
-        "max_tokens": max_tokens,
-        "temperature": 0.8,
-        "system": (
-            "You are rewriting a fantasy novel chapter based on a specific revision brief. "
-            "You follow the brief exactly. You preserve the voice, world, and characters "
-            "from the existing draft while making the structural changes specified. "
-            "You write the FULL chapter. Do not truncate or summarize."
-        ),
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    resp = httpx.post(f"{API_BASE}/v1/messages", headers=headers, json=payload, timeout=600)
-    resp.raise_for_status()
-    return resp.json()["content"][0]["text"]
+    system_prompt = (
+        "You are rewriting a fantasy novel chapter based on a specific revision brief. "
+        "You follow the brief exactly. You preserve the voice, world, and characters "
+        "from the existing draft while making the structural changes specified. "
+        "You write the FULL chapter. Do not truncate or summarize."
+    )
+    return call_llm(prompt, WRITER_MODEL, max_tokens, 0.8, system_prompt)
+
 
 def main():
+    if not API_KEY:
+        print(f"ERROR: Set {'DEEPSEEK_API_KEY' if API_PROVIDER == 'deepseek' else 'ANTHROPIC_API_KEY'} in .env first", file=sys.stderr)
+        sys.exit(1)
+
     ch_num = int(sys.argv[1])
     brief_file = sys.argv[2]
     
@@ -102,6 +93,7 @@ Write the FULL revised chapter now."""
     out_path.write_text(result)
     print(f"Saved to {out_path}", file=sys.stderr)
     print(f"Word count: {len(result.split())}", file=sys.stderr)
+
 
 if __name__ == "__main__":
     main()

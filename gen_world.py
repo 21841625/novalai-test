@@ -1,126 +1,122 @@
 #!/usr/bin/env python3
 """
-One-shot world.md generator for foundation phase.
-Reads seed.txt + voice.md, calls the writer model, outputs world.md content.
+世界设定生成器 - 为基础阶段生成 world.md 文件。
+读取 seed.txt + voice.md + CRAFT.md，调用写作模型生成世界设定。
 """
 import os
 import sys
 from pathlib import Path
-from dotenv import load_dotenv
+
+from api_client import call_llm, get_writer_model, get_api_key, get_api_provider
 
 BASE_DIR = Path(__file__).parent
-load_dotenv(BASE_DIR / ".env")
 
-WRITER_MODEL = os.environ.get("AUTONOVEL_WRITER_MODEL", "claude-sonnet-4-6")
-API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-API_BASE = os.environ.get("AUTONOVEL_API_BASE_URL", "https://api.anthropic.com")
+WRITER_MODEL = get_writer_model()
+API_KEY = get_api_key()
+API_PROVIDER = get_api_provider()
 
 def call_writer(prompt, max_tokens=16000):
-    import httpx
-    headers = {
-        "x-api-key": API_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-    payload = {
-        "model": WRITER_MODEL,
-        "max_tokens": max_tokens,
-        "temperature": 0.7,
-        "system": (
-            "You are a fantasy worldbuilder with deep knowledge of Sanderson's Laws, "
-            "Le Guin's prose philosophy, and TTRPG-quality lore design. "
-            "You write world bibles that are specific, interconnected, and imply depth "
-            "beyond what's stated. You never use AI slop words (delve, tapestry, myriad, etc). "
-            "You write in clean, direct prose. Every rule has a cost. Every cultural detail "
-            "implies a history. Every location has a sensory signature."
-        ),
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    resp = httpx.post(f"{API_BASE}/v1/messages", headers=headers, json=payload, timeout=300)
-    resp.raise_for_status()
-    return resp.json()["content"][0]["text"]
+    """
+    调用写作模型生成世界设定内容。
+    
+    参数：
+        prompt: 提示词字符串
+        max_tokens: 生成的最大令牌数（默认16000）
+    
+    返回：
+        生成的世界设定文本
+    """
+    system_prompt = (
+        "你是一位文学奇幻世界构建师。你创造丰富、具体的世界，具有内部一致性、感官细节和主题共鸣。"
+        "你从不使用俗套的'中世纪奇幻'陈词滥调。你的世界感觉真实可触，并对故事产生影响。"
+        "请用中文写作，风格简洁直接。"
+    )
+    return call_llm(prompt, WRITER_MODEL, max_tokens, temperature=0.7, system=system_prompt)
 
 seed = (BASE_DIR / "seed.txt").read_text()
 voice = (BASE_DIR / "voice.md").read_text()
 craft = (BASE_DIR / "CRAFT.md").read_text()
 
-# Extract voice Part 2 only (the novel-specific voice)
+# Voice Part 2 only
 voice_lines = voice.split('\n')
 part2_start = next(i for i, l in enumerate(voice_lines) if 'Part 2' in l)
 voice_part2 = '\n'.join(voice_lines[part2_start:])
 
-prompt = f"""Build a complete world bible for this fantasy novel. This is the WORLD.MD file -- 
-the definitive reference for everything that EXISTS in this world. A writer should be able 
-to resolve any worldbuilding question from this document alone.
+prompt = f"""为这部奇幻小说构建完整的世界设定圣经。这是 WORLD.MD ——
+关于故事中存在什么、魔法如何运作、地理、派系、历史和文化规范的权威参考。
 
-SEED CONCEPT:
+种子概念：
 {seed}
 
-VOICE IDENTITY (the tone and register of this novel):
+语音特征（小说的基调）：
 {voice_part2}
 
-CRAFT REQUIREMENTS (from CRAFT.md -- follow these):
-- Magic system needs HARD RULES with COSTS and LIMITATIONS per Sanderson's Second Law
-- Limitations >= powers in narrative prominence
-- Trace implications of magic through society, economy, law, religion
-- At least 2-3 societal implications of magic explored in depth
-- History must create PRESENT-DAY TENSIONS that drive the plot (not just backdrop)
-- Geography must be specific and sensory (not generic fantasy)
-- Iceberg principle: imply more than you state
-- Interconnection: pulling one thread should move everything
+世界构建要求（来自 CRAFT.md）：
 
-STRUCTURE THE DOCUMENT WITH THESE SECTIONS:
+### 魔法系统规则（桑德森第一法则）
+- 限制比力量更有趣
+- 每一次使用都有代价或后果
+- 魔法应以有趣的方式解决问题，而不仅仅是"让事情发生"
+- 系统必须内部一致
 
-## Cosmology & History
-A timeline of major events. Focus on events that create PRESENT-DAY tensions.
-Include the founding myth, key turning points, and recent events that matter to the plot.
+### 世界构建层次
+1. 地理：具有感官细节的特定地点
+2. 历史：塑造现在的事件
+3. 政治：谁掌握权力，为什么
+4. 文化：习俗、传统、禁忌、艺术、宗教
+5. 经济：人们重视什么？如何生存？
+6. 魔法：超自然的规则和代价
 
-## Magic System
-### Hard Rules (Tonal Law)
-Specific, testable rules. What intervals do what. What progressions bind.
-What happens when you break the rules. Include COSTS and LIMITATIONS prominently.
+用以下章节构建世界圣经：
 
-### Soft Magic (Cass's Gift)
-What he perceives, how it works, what it costs HIM specifically.
-This should be mysterious but have consistent internal logic.
+1. **标题与一句话简介**
+   - 这个世界/设定的名称
+   - 一句话概括其精髓
 
-### Societal Implications
-How does tonal law shape: governance, commerce, education, class structure,
-crime, family life, childhood, aging, disability?
+2. **地理**
+   - 地图描述（关键地点、地形、气候）
+   - 至少5个有特定目的的命名地点
+   - 地理如何塑造文化和冲突
 
-## Geography
-Cantamura's physical layout, districts, the natural amphitheater's acoustic properties.
-Neighboring places (at least 2-3). Sensory signatures for each location.
+3. **历史**
+   - 关键事件时间线（至少最近50-100年）
+   - 关键时刻的"之前"和"之后"
+   - 过去未解决的紧张关系
 
-## Factions & Politics
-Who holds power, who wants it, who's being crushed by it.
-At least 3-4 factions with opposing interests.
+4. **魔法系统**
+   - 它能做什么？有什么限制？
+   - 代价是什么？（身体、情感、社会）
+   - 谁可以使用它？为什么？
+   - 文化对魔法的态度
 
-## Bestiary / Flora / Natural World
-What's unique about the natural world in and around Cantamura?
+5. **派系与权力结构**
+   - 至少4个目标冲突的主要派系
+   - 维持秩序（或混乱）的机构
+   - 隐藏的权力和幕后玩家
 
-## Cultural Details
-Customs, taboos, festivals, food, clothing, coming-of-age rituals.
-Things that make daily life feel SPECIFIC.
+6. **文化与社会**
+   - 不同阶层的日常生活
+   - 习俗、仪式、节日
+   - 禁忌及其被打破时的后果
+   - 主角将打破的"常态"
 
-## Internal Consistency Rules
-Hard constraints a writer must not violate. The physics of sound in this world.
-What's possible and what's not.
+7. **主题共鸣**
+   - 这个世界如何强化故事的主题？
+   - 世界中的哪些矛盾创造了叙事张力？
 
-IMPORTANT:
-- Be SPECIFIC. Not "the city has districts" but name them, describe them, 
-  give them sensory signatures.
-- Every rule should have a COST or LIMITATION stated alongside it.
-- Include 2-3 facts per section that are unexplained, hinting at deeper systems 
-  (iceberg depth).
-- Facts should INTERCONNECT: the magic should shape the politics, the geography 
-  should shape the culture, the history should explain current faction conflicts.
-- Write in clean, direct prose. No AI slop. No "rich tapestry." No "delving."
-- The world should feel grounded and LIVED-IN, not imagined. Think: what does 
-  breakfast smell like? What do children play? How do old people complain?
-- Target ~3000-4000 words. Dense, not padded.
+重要提示：
+- 目标约4000-5000字。密集、具体的世界构建，不要冗余。
+- 每个细节都应为故事服务——不要为了世界构建而构建。
+- 做出能为角色创造有趣困境的选择。
+- 用感官细节奠定一切：气味、声音、质感。
+- 避免俗套的奇幻元素。让这个世界感觉独特。
+请用中文输出。
 """
 
-print("Calling writer model...", file=sys.stderr)
+if not API_KEY:
+    print(f"错误：请先在 .env 中设置 {'DEEPSEEK_API_KEY' if API_PROVIDER == 'deepseek' else 'ANTHROPIC_API_KEY'}", file=sys.stderr)
+    sys.exit(1)
+
+print("正在调用写作模型...", file=sys.stderr)
 result = call_writer(prompt)
 print(result)

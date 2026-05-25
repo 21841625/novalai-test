@@ -12,14 +12,14 @@ import json
 import re
 from pathlib import Path
 from datetime import datetime
-from dotenv import load_dotenv
+
+from api_client import call_llm, get_judge_model, get_api_key, get_api_provider
 
 BASE_DIR = Path(__file__).parent
-load_dotenv(BASE_DIR / ".env")
 
-JUDGE_MODEL = os.environ.get("AUTONOVEL_JUDGE_MODEL", "claude-opus-4-6")
-API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-API_BASE = os.environ.get("AUTONOVEL_API_BASE_URL", "https://api.anthropic.com")
+JUDGE_MODEL = get_judge_model()
+API_KEY = get_api_key()
+API_PROVIDER = get_api_provider()
 
 READERS = {
     "editor": {
@@ -110,24 +110,10 @@ Respond with JSON:
 }}
 """
 
+
 def call_reader(reader_key, arc_summary):
-    import httpx
     reader = READERS[reader_key]
-    headers = {
-        "x-api-key": API_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-    payload = {
-        "model": JUDGE_MODEL,
-        "max_tokens": 4000,
-        "temperature": 0.7,  # Higher temp for personality
-        "system": reader["system"],
-        "messages": [{"role": "user", "content": READER_PROMPT.format(arc_summary=arc_summary)}],
-    }
-    resp = httpx.post(f"{API_BASE}/v1/messages", headers=headers, json=payload, timeout=300)
-    resp.raise_for_status()
-    raw = resp.json()["content"][0]["text"]
+    raw = call_llm(READER_PROMPT.format(arc_summary=arc_summary), JUDGE_MODEL, 4000, 0.7, reader["system"])
     
     # Parse JSON
     raw = raw.strip()
@@ -151,6 +137,7 @@ def call_reader(reader_key, arc_summary):
                 if depth == 0:
                     return json.loads(raw[start:i+1], strict=False)
     return json.loads(raw, strict=False)
+
 
 def find_disagreements(results):
     """Find where readers disagree -- that's where the editorial decisions live."""
@@ -183,7 +170,12 @@ def find_disagreements(results):
     
     return disagreements
 
+
 def main():
+    if not API_KEY:
+        print(f"ERROR: Set {'DEEPSEEK_API_KEY' if API_PROVIDER == 'deepseek' else 'ANTHROPIC_API_KEY'} in .env first", file=sys.stderr)
+        sys.exit(1)
+
     arc_summary = (BASE_DIR / "arc_summary.md").read_text()
     
     results = {}
@@ -239,6 +231,7 @@ def main():
     with open(out_path, "w") as f:
         json.dump(output, f, indent=2)
     print(f"\nSaved to {out_path}")
+
 
 if __name__ == "__main__":
     main()

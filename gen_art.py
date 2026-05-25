@@ -30,10 +30,10 @@ import shutil
 import argparse
 import subprocess
 from pathlib import Path
-from dotenv import load_dotenv
+
+from api_client import call_llm, get_writer_model, get_api_key, get_api_provider
 
 BASE_DIR = Path(__file__).parent
-load_dotenv(BASE_DIR / ".env", override=True)
 
 FAL_KEY = os.environ.get("FAL_KEY", "")
 FAL_URL = "https://fal.run/fal-ai/nano-banana-2"
@@ -45,14 +45,10 @@ SVG_DIR = ART_DIR / "svg"
 STYLE_FILE = ART_DIR / "visual_style.json"
 PICKS_FILE = ART_DIR / "picks.json"
 
-WRITER_MODEL = os.environ.get("AUTONOVEL_WRITER_MODEL", "claude-sonnet-4-6")
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_BASE = os.environ.get("AUTONOVEL_API_BASE_URL", "https://api.anthropic.com")
+WRITER_MODEL = get_writer_model()
+API_KEY = get_api_key()
+API_PROVIDER = get_api_provider()
 
-
-# ============================================================
-# API HELPERS
-# ============================================================
 
 def fal_generate(prompt, resolution="1K", aspect_ratio="auto", seed=None):
     import httpx
@@ -113,24 +109,7 @@ def download_image(url, dest_path):
 
 
 def call_claude(prompt, max_tokens=1500):
-    import httpx
-    resp = httpx.post(
-        f"{ANTHROPIC_BASE}/v1/messages",
-        headers={
-            "x-api-key": ANTHROPIC_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        json={
-            "model": WRITER_MODEL,
-            "max_tokens": max_tokens,
-            "temperature": 0.3,
-            "messages": [{"role": "user", "content": prompt}],
-        },
-        timeout=120,
-    )
-    resp.raise_for_status()
-    return resp.json()["content"][0]["text"]
+    return call_llm(prompt, WRITER_MODEL, max_tokens, 0.3)
 
 
 def load_style():
@@ -157,10 +136,6 @@ def get_reference_url(art_type):
         return picks[art_type].get("url")
     return None
 
-
-# ============================================================
-# STYLE
-# ============================================================
 
 def cmd_style(args):
     world = (BASE_DIR / "world.md").read_text()[:5000]
@@ -213,10 +188,6 @@ JSON only."""
     return style
 
 
-# ============================================================
-# CURATE: generate N variants, human picks
-# ============================================================
-
 def cmd_curate(args):
     style = load_style()
     art_type = args.art_type
@@ -224,7 +195,6 @@ def cmd_curate(args):
 
     VARIANTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Step 1: Generate fundamentally different art directions via Claude
     from gen_art_directions import generate_directions
 
     world = ""
@@ -234,7 +204,6 @@ def cmd_curate(args):
     print(f"Generating {n} radically different {art_type} directions...")
     directions = generate_directions(art_type, style, n, world)
 
-    # Resolution/aspect per type
     resolutions = {
         "cover": ("1K", "2:3"),
         "ornament": ("0.5K", "1:1"),
@@ -243,11 +212,9 @@ def cmd_curate(args):
     }
     resolution, aspect = resolutions.get(art_type, ("1K", "auto"))
 
-    # Step 2: Generate one image per direction
     directions_log = []
     for i, d in enumerate(directions, 1):
         prompt = d["prompt"]
-        # Append universal constraints
         if art_type == "cover":
             prompt += " No text, no title, no lettering. Pure illustration."
         elif art_type in ("ornament", "scene-break"):
@@ -261,7 +228,6 @@ def cmd_curate(args):
         dest = VARIANTS_DIR / f"{art_type}_{i:02d}.png"
         size = download_image(url, dest)
 
-        # Cache URL and direction info
         picks = load_picks()
         picks[f"variant_{art_type}_{i}"] = {
             "url": url,
@@ -284,7 +250,6 @@ def cmd_curate(args):
         if i < n:
             time.sleep(1)
 
-    # Save directions log for reference
     log_path = VARIANTS_DIR / f"{art_type}_directions.json"
     log_path.write_text(json.dumps(directions_log, indent=2))
 
@@ -299,18 +264,16 @@ def cmd_curate(args):
 
 def _extract_geography(world_text):
     """Extract location names and spatial relationships from world.md."""
-    # Look for district/location names
     locations = []
     for pattern in [
-        r'\*\*([^*]+)\*\*\s*[—–-]',  # **Name** — description
-        r'###\s+(.+)',  # ### Section headers
+        r'\*\*([^*]+)\*\*\s*[—–-]',
+        r'###\s+(.+)',
     ]:
         for m in re.finditer(pattern, world_text):
             name = m.group(1).strip()
             if len(name) < 40 and not name.startswith("Note"):
                 locations.append(name)
 
-    # Also extract named places from text
     for pattern in [r'the ([A-Z][a-z]+ (?:Quarter|District|Tier|Line|Square|Tower|Settlement)s?)']:
         for m in re.finditer(pattern, world_text):
             loc = m.group(1)
@@ -322,10 +285,6 @@ def _extract_geography(world_text):
     return "the main city districts and landmarks described in the world bible"
 
 
-# ============================================================
-# PICK: select a variant as the final
-# ============================================================
-
 def cmd_pick(args):
     art_type = args.art_type
     number = args.number
@@ -336,7 +295,6 @@ def cmd_pick(args):
         print(f"Available: {sorted(VARIANTS_DIR.glob(f'{art_type}_*.png'))}")
         sys.exit(1)
 
-    # Copy to final location
     if art_type == "cover":
         final = ART_DIR / "cover.png"
     elif art_type == "ornament":
@@ -350,7 +308,6 @@ def cmd_pick(args):
 
     shutil.copy2(variant_path, final)
 
-    # Save the pick with its URL for reference
     picks = load_picks()
     variant_key = f"variant_{art_type}_{number}"
     url = picks.get(variant_key, {}).get("url", "")
@@ -362,10 +319,6 @@ def cmd_pick(args):
     if art_type == "ornament":
         print(f"\nOrnament reference set. Run: gen_art.py ornaments-all")
 
-
-# ============================================================
-# BATCH ORNAMENTS (use reference)
-# ============================================================
 
 def cmd_ornaments_all(args):
     style = load_style()
@@ -415,14 +368,9 @@ def cmd_scene_break(args):
     print(f"  Saved: {dest} ({size:,} bytes)")
 
 
-# ============================================================
-# VECTORIZE: raster → SVG via potrace
-# ============================================================
-
 def cmd_vectorize(args):
     target = args.target if args.target else "all"
 
-    # Check potrace is available
     potrace = shutil.which("potrace")
     if not potrace:
         print("ERROR: potrace not found. Install it or add to PATH.")
@@ -431,7 +379,6 @@ def cmd_vectorize(args):
     SVG_DIR.mkdir(parents=True, exist_ok=True)
 
     if target == "all":
-        # Vectorize ornaments + scene break (not cover or map)
         files = sorted(ART_DIR.glob("ornament_ch*.png"))
         sb = ART_DIR / "scene_break.png"
         if sb.exists():
@@ -449,22 +396,18 @@ def cmd_vectorize(args):
         svg_path = SVG_DIR / f"{png_path.stem}.svg"
 
         try:
-            # Step 1: Convert to grayscale PBM using Pillow
             from PIL import Image
             img = Image.open(png_path).convert("L")
-            # Threshold to black and white
             bw = img.point(lambda x: 0 if x < 180 else 255, "1")
             pbm_path = png_path.with_suffix(".pbm")
             bw.save(pbm_path)
 
-            # Step 2: Run potrace
             result = subprocess.run(
                 [potrace, str(pbm_path), "-s", "-o", str(svg_path),
                  "--turdsize", "4", "--opttolerance", "0.2"],
                 capture_output=True, text=True
             )
 
-            # Cleanup temp file
             pbm_path.unlink(missing_ok=True)
 
             if result.returncode == 0 and svg_path.exists():
@@ -478,10 +421,6 @@ def cmd_vectorize(args):
 
     print(f"\nSVGs saved to {SVG_DIR}/")
 
-
-# ============================================================
-# ALL: full pipeline with human curation points
-# ============================================================
 
 def cmd_all(args):
     print("=" * 60)
@@ -541,10 +480,6 @@ def cmd_all(args):
     print("=" * 60)
 
 
-# ============================================================
-# MAIN
-# ============================================================
-
 def main():
     parser = argparse.ArgumentParser(description="Generate novel art via Nano Banana 2")
     sub = parser.add_subparsers(dest="command")
@@ -573,7 +508,11 @@ def main():
         parser.print_help()
         return
 
-    if not FAL_KEY and args.command not in ("vectorize",):
+    if args.command == "style" and not API_KEY:
+        print(f"ERROR: Set {'DEEPSEEK_API_KEY' if API_PROVIDER == 'deepseek' else 'ANTHROPIC_API_KEY'} in .env first", file=sys.stderr)
+        sys.exit(1)
+
+    if not FAL_KEY and args.command not in ("vectorize", "style"):
         print("ERROR: FAL_KEY not set in .env", file=sys.stderr)
         sys.exit(1)
 

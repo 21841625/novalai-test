@@ -7,35 +7,18 @@ import os
 import json
 import re
 from pathlib import Path
-from dotenv import load_dotenv
+
+from api_client import call_llm, get_writer_model, get_api_key, get_api_provider
 
 BASE_DIR = Path(__file__).parent
-load_dotenv(BASE_DIR / ".env", override=True)
 
-WRITER_MODEL = os.environ.get("AUTONOVEL_WRITER_MODEL", "claude-sonnet-4-6")
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_BASE = os.environ.get("AUTONOVEL_API_BASE_URL", "https://api.anthropic.com")
+WRITER_MODEL = get_writer_model()
+API_KEY = get_api_key()
+API_PROVIDER = get_api_provider()
 
 
 def call_claude(prompt, max_tokens=3000):
-    import httpx
-    resp = httpx.post(
-        f"{ANTHROPIC_BASE}/v1/messages",
-        headers={
-            "x-api-key": ANTHROPIC_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        json={
-            "model": WRITER_MODEL,
-            "max_tokens": max_tokens,
-            "temperature": 0.9,
-            "messages": [{"role": "user", "content": prompt}],
-        },
-        timeout=120,
-    )
-    resp.raise_for_status()
-    return resp.json()["content"][0]["text"]
+    return call_llm(prompt, WRITER_MODEL, max_tokens, 0.9)
 
 
 def generate_directions(art_type, style, n=6, world_excerpt=""):
@@ -141,7 +124,11 @@ JSON array only."""
     return json.loads(text)
 
 
-if __name__ == "__main__":
+def main():
+    if not API_KEY:
+        print(f"ERROR: Set {'DEEPSEEK_API_KEY' if API_PROVIDER == 'deepseek' else 'ANTHROPIC_API_KEY'} in .env first", file=sys.stderr)
+        sys.exit(1)
+
     import sys
     style_file = BASE_DIR / "art" / "visual_style.json"
     if not style_file.exists():
@@ -162,3 +149,7 @@ if __name__ == "__main__":
         print(f"  Concept: {d['concept']}")
         print(f"  Medium:  {d['medium']}")
         print(f"  Prompt:  {d['prompt'][:150]}...")
+
+
+if __name__ == "__main__":
+    main()
