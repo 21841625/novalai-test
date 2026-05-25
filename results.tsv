@@ -2,3 +2,4 @@ timestamp	phase	score	words	keep_discard	description
 66d873b	foundation	1.0	0	keep	Iteration 1: score improved 0.0 -> 1.0
 44bfab6	foundation	1.75	0	keep	Iteration 2: score improved 1.0 -> 1.75
 discarded	foundation	1.0	0	discard	Iteration 5: no improvement (1.0 <= 3.0)
+discarded	foundation	1.25	0	discard	Iteration 5: no improvement (1.25 <= 1.75)
