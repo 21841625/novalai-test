@@ -1,19 +1,32 @@
 #!/usr/bin/env python3
 """
-角色注册表生成器 - 为基础阶段生成 characters.md 文件。
-读取 seed.txt + voice.md + world.md + CRAFT.md，调用写作模型生成角色设定。
+角色注册表生成器 - 为基础阶段生成 角色设定.md 文件。
+读取 seed.txt + voice.md + 世界设定.md + CRAFT.md，调用写作模型生成角色设定。
 """
+import logging
 import os
 import sys
 from pathlib import Path
 
-from api_client import call_llm, get_writer_model, get_api_key, get_api_provider
+from api_client import call_llm, get_writer_model, get_api_key, get_api_provider, validate_api_config
 
 BASE_DIR = Path(__file__).parent
+
+# 新的目录结构
+OUTPUT_DIR = BASE_DIR / "out_doc"
+MD_FILES_DIR = OUTPUT_DIR / "md_file"
 
 WRITER_MODEL = get_writer_model()
 API_KEY = get_api_key()
 API_PROVIDER = get_api_provider()
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stderr)]
+)
+logger = logging.getLogger(__name__)
 
 def call_writer(prompt, max_tokens=16000):
     """
@@ -27,22 +40,58 @@ def call_writer(prompt, max_tokens=16000):
         生成的角色注册表文本
     """
     system_prompt = (
-        "你是一位文学小说的角色设计师，精通创伤/欲望/需求/谎言框架、桑德森的三个滑块理论和对话独特性。"
+        "你是一位专业的小说角色设计师，精通创伤/欲望/需求/谎言框架、桑德森的三个滑块理论和对话独特性。"
         "你创造的角色感觉像真实的人，有矛盾、秘密和可识别的说话模式。"
-        "你从不使用AI俗套词汇。请用中文写作，风格简洁直接。"
+        "你从不使用陈词滥调词汇。请用中文写作，风格简洁直接。"
     )
     return call_llm(prompt, WRITER_MODEL, max_tokens, temperature=0.7, system=system_prompt)
 
-seed = (BASE_DIR / "seed.txt").read_text()
-world = (BASE_DIR / "world.md").read_text()
+# 确保目录存在
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+MD_FILES_DIR.mkdir(parents=True, exist_ok=True)
+
+# 文件路径
+SEED_FILE = OUTPUT_DIR / "seed.txt"
+VOICE_FILE = BASE_DIR / "voice.md"
+WORLD_FILE = MD_FILES_DIR / "世界设定.md"
+OUTPUT_FILE = MD_FILES_DIR / "角色设定.md"
+
+# 验证API配置
+validate_api_config()
+
+if not API_KEY:
+    logger.error(f"错误：请先在 .env 中设置 {'DEEPSEEK_API_KEY' if API_PROVIDER == 'deepseek' else 'ANTHROPIC_API_KEY'}")
+    sys.exit(1)
+
+# 检查必要文件
+if not SEED_FILE.exists():
+    logger.error(f"错误：未找到种子文件 {SEED_FILE}")
+    sys.exit(1)
+
+if not VOICE_FILE.exists():
+    logger.error(f"错误：未找到语音文件 {VOICE_FILE}")
+    sys.exit(1)
+
+if not WORLD_FILE.exists():
+    logger.error(f"错误：未找到世界设定文件 {WORLD_FILE}")
+    logger.error("请先运行 gen_world.py 生成世界设定")
+    sys.exit(1)
+
+logger.info(f"加载种子文件: {SEED_FILE}")
+seed = SEED_FILE.read_text(encoding='utf-8')
+
+logger.info(f"加载世界设定文件: {WORLD_FILE}")
+world = WORLD_FILE.read_text(encoding='utf-8')
+
+logger.info(f"加载语音文件: {VOICE_FILE}")
+voice = VOICE_FILE.read_text(encoding='utf-8')
 
 # Voice Part 2 only
-voice = (BASE_DIR / "voice.md").read_text()
 voice_lines = voice.split('\n')
-part2_start = next(i for i, l in enumerate(voice_lines) if 'Part 2' in l)
+part2_start = next(i for i, l in enumerate(voice_lines) if 'Part 2' in l or '第二部分' in l)
 voice_part2 = '\n'.join(voice_lines[part2_start:])
 
-prompt = f"""为这部奇幻小说构建完整的角色注册表。这是 CHARACTERS.MD ——
+prompt = f"""为这部小说构建完整的角色注册表。这是 角色设定.md ——
 关于故事中存在谁、什么驱动他们、他们如何说话以及他们背负什么秘密的权威参考。
 
 种子概念：
@@ -54,7 +103,7 @@ prompt = f"""为这部奇幻小说构建完整的角色注册表。这是 CHARAC
 语音特征（小说的基调）：
 {voice_part2}
 
-角色塑造要求（来自 CRAFT.md）：
+角色塑造要求：
 
 ### 三个滑块（桑德森）
 每个角色有三个独立的刻度（0-10）：
@@ -76,9 +125,9 @@ prompt = f"""为这部奇幻小说构建完整的角色注册表。这是 CHARAC
 7. 比喻领域  8. 直接与间接
 测试：移除对话标签。你能分辨是谁在说话吗？
 
-构建至少包含以下角色的注册表：
+构建角色注册表，包含至少6-8个角色：
 
-1. **Cass Bellwright**（主角，POV角色）
+1. **主角**（POV角色）
    - 完整的创伤/欲望/需求/谎言链
    - 三个滑块及理由
    - 弧线类型（正/负/平）
@@ -87,35 +136,26 @@ prompt = f"""为这部奇幻小说构建完整的角色注册表。这是 CHARAC
    - 至少2个秘密
    - 关键关系映射
 
-2. **Eddan Bellwright**（父亲）
-   - 与Cass同样深度
-   - 他与密封日记的关系，颤抖的手
-   - 他知道什么，隐藏什么
+2. **主要对手/反派**
+   - 不是纯粹的恶人——而是利益与主角冲突的人
+   - 他/她自己的创伤/欲望/需求/谎言（应该可以理解）
 
-3. **Perin Bellwright**（兄弟）
+3. **配角1**（家人/朋友/导师）
+   - 与主角同样深度
+   - 他/她的秘密和隐藏的动机
+
+4. **配角2**（盟友/同伴）
    - 即使他大部分故事中缺席，也需要完整深度
-   - Corda契约到底发生了什么
-   - 通过缺席体现的存在感
+   - 通过行动或缺席体现的存在感
 
-4. **Maret Corda**（对手）
-   - 不是反派——而是利益与Cass冲突的人
-   - 她自己的创伤/欲望/需求/谎言（应该可以理解）
+5. **制度性对手**（组织/系统的化身）
+   - 他/她相信自己在做正确的事
 
-5. **Rector Suvaine**（学院院长）
-   - 制度性对手——系统的化身
-   - 她相信自己在保护Cantamura
-
-6. **Torvald Hess**（联盟领袖）
-   - 对系统的局外人视角
-   - 他代表什么主题
-
-7. **至少1-2个故事需要的额外角色**
-   - Cass在学院的同伴/朋友？
-   - Corda家族中认识Perin的人？
-   - 一个忠诚分裂的宫廷歌手？
+6. **至少1-2个故事需要的额外角色**
+   - 根据故事类型添加合适的角色
 
 每个角色包括：
-- 姓名、年龄、角色
+- 姓名、年龄、角色定位
 - 幽灵/创伤/欲望/需求/谎言链（主要角色）
 - 三个滑块（主动性/亲和力/能力）带数字和理由
 - 弧线类型和轨迹
@@ -130,17 +170,19 @@ prompt = f"""为这部奇幻小说构建完整的角色注册表。这是 CHARAC
 - 角色必须相互关联。他们的欲望应该相互冲突。
 - 每个秘密都应该是如果揭示会改变故事的东西。
 - 说话模式必须足够独特以通过无标签测试。
-- 给Cass一些来自他天赋的习惯（疼痛、持续倾听）。
-- 父亲颤抖的手应该与特定事物相关联。
-- Maret Corda应该和Cass一样完整——一个值得的对手。
 - 目标约3000-4000字。密集的角色塑造，不要冗余。
 请用中文输出。
 """
 
-if not API_KEY:
-    print(f"错误：请先在 .env 中设置 {'DEEPSEEK_API_KEY' if API_PROVIDER == 'deepseek' else 'ANTHROPIC_API_KEY'}", file=sys.stderr)
+logger.info(f"正在调用写作模型生成角色设定...")
+try:
+    result = call_writer(prompt)
+    
+    logger.info(f"保存角色设定到: {OUTPUT_FILE}")
+    OUTPUT_FILE.write_text(result, encoding='utf-8')
+    logger.info(f"角色设定生成完成，字数: {len(result)}")
+    
+    print(result)
+except Exception as e:
+    logger.error(f"生成角色设定时发生错误: {str(e)}", exc_info=True)
     sys.exit(1)
-
-print("正在调用写作模型...", file=sys.stderr)
-result = call_writer(prompt)
-print(result)

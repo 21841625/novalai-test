@@ -31,7 +31,12 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent
 STATE_FILE = BASE_DIR / "state.json"
 RESULTS_FILE = BASE_DIR / "results.tsv"
-CHAPTERS_DIR = BASE_DIR / "chapters"
+
+# 新的目录结构
+OUTPUT_DIR = BASE_DIR / "out_doc"
+MD_FILES_DIR = OUTPUT_DIR / "md_file"      # 存放世界设定、角色、大纲等MD文件
+CHAPTERS_DIR = OUTPUT_DIR / "chapters"     # 存放章节内容
+
 BRIEFS_DIR = BASE_DIR / "briefs"
 EDIT_LOGS_DIR = BASE_DIR / "edit_logs"
 EVAL_LOGS_DIR = BASE_DIR / "eval_logs"
@@ -780,9 +785,9 @@ def run_pipeline(args):
     # Load or initialize state
     if args.from_scratch:
         banner("STARTING FROM SCRATCH")
-        seed_file = BASE_DIR / "seed.txt"
+        seed_file = OUTPUT_DIR / "seed.txt"
         if not seed_file.exists():
-            print("ERROR: seed.txt not found. Cannot start from scratch without a seed.")
+            print(f"ERROR: seed.txt not found at {seed_file}. Cannot start from scratch without a seed.")
             sys.exit(1)
         state = default_state()
         save_state(state)
@@ -790,10 +795,12 @@ def run_pipeline(args):
         state = load_state()
 
     # Ensure directories exist
-    CHAPTERS_DIR.mkdir(exist_ok=True)
-    BRIEFS_DIR.mkdir(exist_ok=True)
-    EDIT_LOGS_DIR.mkdir(exist_ok=True)
-    EVAL_LOGS_DIR.mkdir(exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    MD_FILES_DIR.mkdir(parents=True, exist_ok=True)
+    CHAPTERS_DIR.mkdir(parents=True, exist_ok=True)
+    BRIEFS_DIR.mkdir(parents=True, exist_ok=True)
+    EDIT_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    EVAL_LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Apply max_cycles override
     max_cycles = args.max_cycles if args.max_cycles else MAX_REVISION_CYCLES

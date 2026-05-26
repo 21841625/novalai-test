@@ -6,7 +6,7 @@
 - Age:
 - Speech pattern:
 - Arc: starting state -> midpoint -> ending state
-- Secret:
+- Secclsret:
 - Relationships:
   - Character: nature of relationship (Act 1), evolution (Act 2), resolution (Act 3)
 - Foreshadowing planted:

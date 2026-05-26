@@ -1,78 +1,113 @@
 #!/usr/bin/env python3
-"""Generate remaining chapters + foreshadowing ledger."""
+"""
+大纲生成器第二部分 - 生成剩余章节 + 伏笔记录。
+"""
+import logging
 import os
 import sys
+import tempfile
 from pathlib import Path
 
-from api_client import call_llm, get_writer_model, get_api_key, get_api_provider
+from api_client import call_llm, get_writer_model, get_api_key, get_api_provider, validate_api_config
 
 BASE_DIR = Path(__file__).parent
+
+# 新的目录结构
+OUTPUT_DIR = BASE_DIR / "out_doc"
+MD_FILES_DIR = OUTPUT_DIR / "md_file"
 
 WRITER_MODEL = get_writer_model()
 API_KEY = get_api_key()
 API_PROVIDER = get_api_provider()
 
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stderr)]
+)
+logger = logging.getLogger(__name__)
+
 
 def call_writer(prompt, max_tokens=16000):
     system_prompt = (
-        "You are a novel architect continuing an outline. Write in the same format "
-        "as the preceding chapters. Every chapter needs: POV, Location, Save the Cat beat, "
-        "% mark, Emotional arc, Try-fail cycle, Beats, Plants, Payoffs, Character movement, "
-        "The lie, Word count target."
+        "你是一位专业的小说架构师，正在继续编写大纲。请使用与前面章节相同的格式。"
+        "每章需要：POV、地点、Save the Cat节拍、%标记、情感弧线、尝试-失败循环、"
+        "节拍、伏笔、回收、角色发展、谎言、字数目标。"
     )
     return call_llm(prompt, WRITER_MODEL, max_tokens, 0.5, system_prompt)
 
 
 def main():
+    # 确保目录存在
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    MD_FILES_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # 文件路径
+    OUTLINE_FILE = MD_FILES_DIR / "章节大纲.md"
+    MYSTERY_FILE = BASE_DIR / "MYSTERY.md"
+    
+    # 验证API配置
+    validate_api_config()
+
     if not API_KEY:
-        print(f"ERROR: Set {'DEEPSEEK_API_KEY' if API_PROVIDER == 'deepseek' else 'ANTHROPIC_API_KEY'} in .env first", file=sys.stderr)
+        logger.error(f"错误：请先在 .env 中设置 {'DEEPSEEK_API_KEY' if API_PROVIDER == 'deepseek' else 'ANTHROPIC_API_KEY'}")
         sys.exit(1)
 
-    part1 = open('/tmp/outline_output.md').read()
-    mystery = (BASE_DIR / "MYSTERY.md").read_text()
+    # 检查必要文件
+    if not OUTLINE_FILE.exists():
+        logger.error(f"错误：未找到章节大纲文件 {OUTLINE_FILE}")
+        logger.error("请先运行 gen_outline.py 生成章节大纲")
+        sys.exit(1)
+    
+    logger.info(f"加载章节大纲文件: {OUTLINE_FILE}")
+    part1 = OUTLINE_FILE.read_text(encoding='utf-8')
+    
+    if not MYSTERY_FILE.exists():
+        logger.warning(f"警告：未找到 MYSTERY.md 文件，将使用空内容")
+        mystery = ""
+    else:
+        logger.info(f"加载谜团文件: {MYSTERY_FILE}")
+        mystery = MYSTERY_FILE.read_text(encoding='utf-8')
 
-    prompt = f"""Here are the first 17 chapters of a 24-chapter outline for "The Second Son of the House of Bells."
-The outline was cut off mid-chapter-17. Continue from where it left off, then complete chapters 18-24,
-then write the Foreshadowing Ledger.
+    prompt = f"""以下是小说章节大纲的前半部分。请继续完成剩余章节，然后编写伏笔记录。
 
-THE OUTLINE SO FAR:
+已有的大纲：
 {part1}
 
-THE CENTRAL MYSTERY (for reference):
+核心谜团（供参考）：
 {mystery}
 
-REMAINING STRUCTURE NEEDED:
+需要完成的结构：
 
-Ch 17 (complete it): Maret confrontation -- she reveals the truth about the void
-Ch 18: Dark Night of the Soul -- Cass processes what he's learned
-Ch 19: Break Into Three -- new information or perspective changes everything  
-Ch 20-21: Gathering forces, making a plan
-Ch 22: The climax at the Bell Tower -- Cass answers the question
-Ch 23: Aftermath and resolution
-Ch 24: Final Image (mirror of Opening Image)
+继续完成未完成的章节，然后完成后续章节，最后编写伏笔记录。
 
-Then write:
+## 伏笔记录
 
-## Foreshadowing Ledger
+| # | 线索 | 植入（章节） | 强化（章节） | 回收（章节） | 类型 |
+|---|------|-------------|-----------------|-------------|------|
 
-| # | Thread | Planted (Ch) | Reinforced (Ch) | Payoff (Ch) | Type |
-|---|--------|-------------|-----------------|-------------|------|
+至少包含15条线索。类型：物品、对话、动作、象征、结构。
+伏笔到回收的距离必须至少3章。
 
-Include at LEAST 15 threads. Types: object, dialogue, action, symbolic, structural.
-Plant-to-payoff distance must be at least 3 chapters.
-
-REMEMBER:
-- The climax uses the fourth option: Cass amplifies the question into audible range
-  so the city can hear and answer for themselves
-- This doesn't free Perin directly (Stability Trap -- not everything resolves cleanly)
-- Cass's lie must be fully shattered by the climax
-- Final Image should mirror Ch 1's Opening Image but show transformation
-- At least one quiet chapter in the back half
+请用中文输出，保持与已有大纲相同的格式。
 """
 
-    print("Calling writer model...", file=sys.stderr)
-    result = call_writer(prompt)
-    print(result)
+    logger.info(f"正在调用写作模型完成章节大纲...")
+    try:
+        result = call_writer(prompt)
+        
+        # 将结果追加到章节大纲文件
+        logger.info(f"追加内容到章节大纲: {OUTLINE_FILE}")
+        with open(OUTLINE_FILE, 'a', encoding='utf-8') as f:
+            f.write('\n\n' + result)
+        
+        logger.info(f"章节大纲第二部分生成完成")
+        
+        print(result)
+    except Exception as e:
+        logger.error(f"生成章节大纲第二部分时发生错误: {str(e)}", exc_info=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
