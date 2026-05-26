@@ -12,7 +12,7 @@ import json
 import re
 from pathlib import Path
 
-from api_client import call_llm, get_judge_model, get_api_key, get_api_provider
+from api_client_1 import call_llm, get_judge_model, get_api_key, get_api_provider
 
 BASE_DIR = Path(__file__).parent
 CHAPTERS_DIR = BASE_DIR / "chapters"

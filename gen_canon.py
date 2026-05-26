@@ -7,7 +7,7 @@ import os
 import sys
 from pathlib import Path
 
-from api_client import call_llm, get_writer_model, get_api_key, get_api_provider, validate_api_config
+from api_client_1 import call_llm, get_writer_model, get_api_key, get_api_provider, validate_api_config
 
 BASE_DIR = Path(__file__).parent
 
